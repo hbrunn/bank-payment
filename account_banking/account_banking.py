@@ -1520,6 +1520,7 @@ class res_partner_bank(osv.osv):
         # Cannot have this as a constraint as it is rejecting valid numbers from GB and DE
         # It works much better without this constraint!
         #(check_iban, _("The IBAN number doesn't seem to be correct"), ["acc_number"])
+        (_check_bank, '\nPlease define BIC/Swift code on bank for bank type IBAN Account to make valid payments', ['bic'])
     ]
 
 res_partner_bank()

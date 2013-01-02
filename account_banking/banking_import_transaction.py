@@ -123,16 +123,22 @@ class banking_import_transaction(osv.osv):
         # return move_lines to mix with the rest
         return [x for x in invoice.move_id.line_id if x.account_id.reconcile]
 
-    def _match_debit_order(
-        self, cr, uid, trans, log, context=None):
+    def _match_payment_order(
+        self, cr, uid, trans, log, order_type = 'payment', context=None):
 
-        def is_zero(total):
+        def equals_order_amount(payment_order, transferred_amount):
+            if (not hasattr(payment_order, 'payment_order_type')
+                    or payment_order.payment_order_type == 'payment'):
+                sign = 1
+            else:
+                sign = -1
+            total = payment_order.total + sign * transferred_amount
             return self.pool.get('res.currency').is_zero(
                 cr, uid, trans.statement_id.currency, total)
 
         payment_order_obj = self.pool.get('payment.order')
         order_ids = payment_order_obj.search(
-            cr, uid, [('payment_order_type', '=', 'debit'),
+            cr, uid, [('payment_order_type', '=', order_type),
                       ('state', '=', 'sent'),
                       ('date_sent', '<=', str2date(trans.execution_date,
                                                    '%Y-%m-%d'))
@@ -140,7 +146,7 @@ class banking_import_transaction(osv.osv):
             limit=0, context=context)
         orders = payment_order_obj.browse(cr, uid, order_ids, context)
         candidates = [x for x in orders if
-                      is_zero(x.total - trans.transferred_amount)]
+                      equals_order_amount(x, trans.transferred_amount)]
         if len(candidates) > 0:
             # retrieve the common account_id, if any
             account_id = False
@@ -580,10 +586,6 @@ class banking_import_transaction(osv.osv):
             raise osv.except_osv(
                 _("Cannot reconcile"),
                 _("Cannot reconcile: no direct debit order"))
-        if transaction.payment_order_id.payment_order_type != 'debit':
-            raise osv.except_osv(
-                _("Cannot reconcile"),
-                _("Reconcile payment order not implemented"))
         reconcile_id = payment_order_obj.debit_reconcile_transfer(
             cr, uid,
             transaction.payment_order_id.id,
@@ -626,11 +628,7 @@ class banking_import_transaction(osv.osv):
         if not transaction.payment_order_id:
             raise osv.except_osv(
                 _("Cannot unreconcile"),
-                _("Cannot unreconcile: no direct debit order"))
-        if transaction.payment_order_id.payment_order_type != 'debit':
-            raise osv.except_osv(
-                _("Cannot unreconcile"),
-                _("Unreconcile payment order not implemented"))
+                _("Cannot unreconcile: no payment or direct debit order"))
         return payment_order_obj.debit_unreconcile_transfer(
             cr, uid, transaction.payment_order_id.id,
             transaction.statement_line_id.reconcile_id.id,
@@ -1269,10 +1267,15 @@ class banking_import_transaction(osv.osv):
                         ), context=context)
                 # rebrowse the current record after writing
                 transaction = self.browse(cr, uid, transaction.id, context=context)
+            if transaction.type == bt.PAYMENT_BATCH:
+                move_info = self._match_payment_order(
+                    cr, uid, transaction, results['log'],
+                    order_type='payment', context=context)
             # Match full direct debit orders
             if transaction.type == bt.DIRECT_DEBIT:
-                move_info = self._match_debit_order(
-                    cr, uid, transaction, results['log'], context)
+                move_info = self._match_payment_order(
+                    cr, uid, transaction, results['log'],
+                    order_type='debit', context=context)
             if transaction.type == bt.STORNO:
                 move_info = self._match_storno(
                     cr, uid, transaction, results['log'], context)

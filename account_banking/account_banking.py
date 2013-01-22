@@ -1515,10 +1515,16 @@ class res_partner_bank(osv.osv):
                        _("The IBAN number doesn't seem to be correct")
                       )
 
+    def _check_bank(self, cr, uid, ids, context=None):
+        #suppress base_iban's constraint to enforce BICs for IBANs
+        #workaround for lp:933472
+        return True
+
     _constraints = [
         # Cannot have this as a constraint as it is rejecting valid numbers from GB and DE
         # It works much better without this constraint!
         #(check_iban, _("The IBAN number doesn't seem to be correct"), ["acc_number"])
+        (_check_bank, '\nPlease define BIC/Swift code on bank for bank type IBAN Account to make valid payments', ['bic'])
     ]
 
 res_partner_bank()

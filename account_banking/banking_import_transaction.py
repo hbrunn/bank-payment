@@ -146,7 +146,8 @@ class banking_import_transaction(osv.osv):
             limit=0, context=context)
         orders = payment_order_obj.browse(cr, uid, order_ids, context)
         candidates = [x for x in orders if
-                      equals_order_amount(x, trans.transferred_amount)]
+                      equals_order_amount(x, trans.transferred_amount) and
+                      x.line_ids and x.line_ids[0].debit_move_line_id]
         if len(candidates) > 0:
             # retrieve the common account_id, if any
             account_id = False
@@ -1054,7 +1055,7 @@ class banking_import_transaction(osv.osv):
         if move_lines and len(move_lines) == 1:
             retval['reference'] = move_lines[0].ref
         if retval['match_type'] == 'invoice':
-            retval['invoice_ids'] = [x.invoice.id for x in move_lines]
+            retval['invoice_ids'] = list(set([x.invoice.id for x in move_lines]))
             retval['type'] = type_map[move_lines[0].invoice.type]
         return retval
     

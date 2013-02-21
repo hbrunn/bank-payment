@@ -43,6 +43,11 @@ class SWIFTField(record.Field):
     #def format(self, value):
     #    return convert.to_swift(super(SWIFTField, self).format(value))
 
+class SWIFTFieldNoLeadingFillchar(SWIFTField):
+    def format(self, value):
+        return super(SWIFTFieldNoLeadingFillchar, self).format(
+            self.cast(value).lstrip(self.fillchar))
+
 def eleven_test(s):
     '''
     Dutch eleven-test for validating 9-long local bank account numbers.
@@ -161,7 +166,7 @@ class PaymentReferenceRecord(record.Record):
     _fields = [
         record.Filler('recordcode', 4, '0150'),
         record.Filler('variantcode', 1, 'A'),
-        SWIFTField('paymentreference', 16),
+        SWIFTFieldNoLeadingFillchar('paymentreference', 16),
         record.Filler('filler', 29),
     ]
 

@@ -43,10 +43,10 @@ class SWIFTField(record.Field):
     #def format(self, value):
     #    return convert.to_swift(super(SWIFTField, self).format(value))
 
-class SWIFTFieldNoLeadingFillchar(SWIFTField):
+class SWIFTFieldNoLeadingWhitespace(SWIFTField):
     def format(self, value):
-        return super(SWIFTFieldNoLeadingFillchar, self).format(
-            self.cast(value).lstrip(self.fillchar))
+        return super(SWIFTFieldNoLeadingWhitespace, self).format(
+            self.cast(value).lstrip())
 
 def eleven_test(s):
     '''
@@ -166,7 +166,7 @@ class PaymentReferenceRecord(record.Record):
     _fields = [
         record.Filler('recordcode', 4, '0150'),
         record.Filler('variantcode', 1, 'A'),
-        SWIFTFieldNoLeadingFillchar('paymentreference', 16),
+        SWIFTFieldNoLeadingWhitespace('paymentreference', 16),
         record.Filler('filler', 29),
     ]
 

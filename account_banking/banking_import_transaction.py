@@ -374,7 +374,7 @@ class banking_import_transaction(osv.osv):
                 move_line = False
                 partial = False
 
-            elif len(candidates) == 1:
+            elif len(candidates) == 1 and candidates[0].invoice:
                 # Mismatch in amounts
                 move_line = candidates[0]
                 invoice = move_line.invoice
@@ -422,10 +422,10 @@ class banking_import_transaction(osv.osv):
                     if x.partner_id.id == move_line.partner_id.id
                     ]
                 
-            return (trans, self._get_move_info(
-                    cr, uid, [move_line.id],
-                    account_ids and account_ids[0] or False),
-                    trans2)
+                return (trans, self._get_move_info(
+                        cr, uid, [move_line.id],
+                        account_ids and account_ids[0] or False),
+                        trans2)
 
         return trans, False, False
 

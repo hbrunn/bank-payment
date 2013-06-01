@@ -20,7 +20,7 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-from osv import osv, fields
+from osv import orm, osv, fields
 from openerp.tools.translate import _
 
 """
@@ -88,14 +88,47 @@ class banking_transaction_wizard(osv.osv_memory):
         statement_line_obj = self.pool.get('account.bank.statement.line')
         transaction_obj = self.pool.get('banking.import.transaction')
 
-        if not vals:
+        if not vals or not ids:
             return True
+
+        wiz = self.browse(cr, uid, ids[0], context=context)
 
         # The following fields get never written
         # they are just triggers for manual matching
         # which populates regular fields on the transaction
         manual_invoice_ids = vals.pop('manual_invoice_ids', [])
         manual_move_line_ids = vals.pop('manual_move_line_ids', [])
+        manual_payment_order_id = vals.pop('manual_payment_order_id', False)
+
+        if manual_payment_order_id:
+            payment_order = self.pool.get('payment.order').browse(
+                cr, uid, manual_payment_order_id,
+                context=context)
+            if (not hasattr(payment_order, 'payment_order_type')
+                    or payment_order.payment_order_type == 'payment'):
+                sign = 1
+            else:
+                sign = -1
+            total = (payment_order.total + sign * 
+                     wiz.transaction_id.transferred_amount)
+            if not self.pool.get('res.currency').is_zero(
+                    cr, uid, wiz.transaction_id.statement_id.currency, total):
+                raise orm.except_orm(
+                    _('Error'),
+                    _('When matching a payment order, the amounts have to '
+                      'match exactly'))
+
+            vals.update(
+                {
+                    'payment_order_id': manual_payment_order_id,
+                    'match_type': 'payment_order_manual',
+                    })
+
+            if payment_order.mode and payment_order.mode.transfer_account_id:
+                statement_line_obj.write(
+                    cr, uid, wiz.import_transaction_id.statement_line_id.id,
+                    {'account_id': payment_order.mode.transfer_account_id.id},
+                    context=context)
 
         # Support for writing fields.related is still flakey:
         # https://bugs.launchpad.net/openobject-server/+bug/915975
@@ -114,11 +147,9 @@ class banking_transaction_wizard(osv.osv_memory):
         # write the related fields on the transaction model
         if isinstance(ids, int):
             ids = [ids]
-        for wizard in self.browse(cr, uid, ids, context=context):
-            if wizard.import_transaction_id:
-                transaction_obj.write(
-                    cr, uid, wizard.import_transaction_id.id,
-                    transaction_vals, context=context)
+        transaction_obj.write(
+            cr, uid, wizard.import_transaction_id.id,
+            transaction_vals, context=context)
 
         # write other fields to the wizard model
         res = super(banking_transaction_wizard, self).write(
@@ -130,7 +161,7 @@ class banking_transaction_wizard(osv.osv_memory):
 
         # An invoice is selected from multiple candidates
         if vals and 'invoice_id' in vals:
-            for wiz in self.browse(cr, uid, ids, context=context):
+            # Indentation kept after removing nonsense loop
                 if (wiz.import_transaction_id.match_type == 'invoice' and
                     wiz.import_transaction_id.invoice_id):
                     # the current value might apply
@@ -409,6 +440,9 @@ class banking_transaction_wizard(osv.osv_memory):
             'wizard_id', 'move_line_id', string='Or match one or more entries',
             domain=[('account_id.reconcile', '=', True),
                     ('reconcile_id', '=', False)]),
+        'manual_payment_order_id': fields.many2one(
+            'payment_order',
+            'Match this payment order'),
         'payment_option': fields.related('import_transaction_id','payment_option', string='Payment Difference', type='selection', required=True,
                                          selection=[('without_writeoff', 'Keep Open'),('with_writeoff', 'Reconcile Payment Balance')]),
         'writeoff_analytic_id': fields.related(

@@ -99,6 +99,8 @@
                                 <field name="manual_move_line_ids" colspan="4"
                                        context="{'search_default_partner_id': partner_id}"
                                        />
+                                <field name="manual_payment_order_id"/>
+                                <group colspan="2"/>
                                 <button name="trigger_write"
                                         type="object"
                                         string="Match" />

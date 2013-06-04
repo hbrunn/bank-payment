@@ -438,7 +438,7 @@ class banking_transaction_wizard(osv.osv_memory):
             domain=[('account_id.reconcile', '=', True),
                     ('reconcile_id', '=', False)]),
         'manual_payment_order_id': fields.many2one(
-            'payment_order',
+            'payment.order',
             'Match this payment order'),
         'payment_option': fields.related('import_transaction_id','payment_option', string='Payment Difference', type='selection', required=True,
                                          selection=[('without_writeoff', 'Keep Open'),('with_writeoff', 'Reconcile Payment Balance')]),

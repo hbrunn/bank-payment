@@ -90,6 +90,8 @@ class banking_transaction_wizard(osv.osv_memory):
 
         if not vals or not ids:
             return True
+        if isinstance(ids, (int, long)):
+            ids = [ids]
 
         wiz = self.browse(cr, uid, ids[0], context=context)
 
@@ -145,15 +147,14 @@ class banking_transaction_wizard(osv.osv_memory):
                 del wizard_vals[key]
 
         # write the related fields on the transaction model
-        if isinstance(ids, int):
-            ids = [ids]
         transaction_obj.write(
-            cr, uid, wizard.import_transaction_id.id,
+            cr, uid, wiz.import_transaction_id.id,
             transaction_vals, context=context)
 
         # write other fields to the wizard model
         res = super(banking_transaction_wizard, self).write(
             cr, uid, ids, wizard_vals, context=context)
+        wiz.refresh()
 
         # End of workaround for lp:915975
         
@@ -161,14 +162,13 @@ class banking_transaction_wizard(osv.osv_memory):
 
         # An invoice is selected from multiple candidates
         if vals and 'invoice_id' in vals:
-            # Indentation kept after removing nonsense loop
-                if (wiz.import_transaction_id.match_type == 'invoice' and
+            if (wiz.import_transaction_id.match_type == 'invoice' and
                     wiz.import_transaction_id.invoice_id):
-                    # the current value might apply
-                    if (wiz.move_line_id and wiz.move_line_id.invoice and
+                # the current value might apply
+                if (wiz.move_line_id and wiz.move_line_id.invoice and
                         wiz.move_line_id.invoice.id == wiz.invoice_id.id):
-                        found = True
-                        continue
+                    found = True
+                else:
                     # Otherwise, retrieve the move line for this invoice
                     # Given the arity of the relation, there is are always
                     # multiple possibilities but the move lines here are
@@ -177,7 +177,7 @@ class banking_transaction_wizard(osv.osv_memory):
                     # one of those only.
                     for move_line in wiz.import_transaction_id.move_line_ids:
                         if (move_line.invoice.id ==
-                            wiz.import_transaction_id.invoice_id.id):
+                                wiz.import_transaction_id.invoice_id.id):
                             transaction_obj.write(
                                 cr, uid, wiz.import_transaction_id.id,
                                 { 'move_line_id': move_line.id, }, context=context)
@@ -188,15 +188,12 @@ class banking_transaction_wizard(osv.osv_memory):
                                   }, context=context)
                             found = True
                             break
-                    # Cannot match the invoice 
-                    if not found:
-                        # transaction_obj.write(
-                        #   cr, uid, wiz.import_transaction_id.id,
-                        #   { 'invoice_id': False, }, context=context)
-                        osv.except_osv(
-                            _("No entry found for the selected invoice"),
-                            _("No entry found for the selected invoice. " +
-                              "Try manual reconciliation."))
+                # Cannot match the invoice 
+                if not found:
+                    osv.except_osv(
+                        _("No entry found for the selected invoice"),
+                        _("No entry found for the selected invoice. " +
+                          "Try manual reconciliation."))
 
         if manual_move_line_ids or manual_invoice_ids:
             move_line_obj = self.pool.get('account.move.line')

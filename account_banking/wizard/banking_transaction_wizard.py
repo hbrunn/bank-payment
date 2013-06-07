@@ -112,9 +112,9 @@ class banking_transaction_wizard(osv.osv_memory):
             else:
                 sign = -1
             total = (payment_order.total + sign * 
-                     wiz.transaction_id.transferred_amount)
+                     wiz.import_transaction_id.transferred_amount)
             if not self.pool.get('res.currency').is_zero(
-                    cr, uid, wiz.transaction_id.statement_id.currency, total):
+                    cr, uid, wiz.import_transaction_id.statement_id.currency, total):
                 raise orm.except_orm(
                     _('Error'),
                     _('When matching a payment order, the amounts have to '
@@ -438,8 +438,9 @@ class banking_transaction_wizard(osv.osv_memory):
             domain=[('account_id.reconcile', '=', True),
                     ('reconcile_id', '=', False)]),
         'manual_payment_order_id': fields.many2one(
-            'payment.order',
-            'Match this payment order'),
+            'payment.order', 'Match this payment order',
+            domain=[('state', '=', 'sent')],
+            ),
         'payment_option': fields.related('import_transaction_id','payment_option', string='Payment Difference', type='selection', required=True,
                                          selection=[('without_writeoff', 'Keep Open'),('with_writeoff', 'Reconcile Payment Balance')]),
         'writeoff_analytic_id': fields.related(

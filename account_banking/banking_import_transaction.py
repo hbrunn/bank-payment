@@ -836,6 +836,7 @@ class banking_import_transaction(osv.osv):
         'manual': _cancel_voucher,
         'move': _cancel_voucher,
         'payment_order': _cancel_payment_order,
+        'payment_order_manual': _cancel_payment_order,
         'payment': _cancel_payment,
         }
 
@@ -859,6 +860,7 @@ class banking_import_transaction(osv.osv):
         'invoice': _confirm_move,
         'manual': _confirm_move,
         'payment_order': _confirm_payment_order,
+        'payment_order_manual': _confirm_payment_order,
         'payment': _confirm_payment,
         'move': _confirm_move,
         }

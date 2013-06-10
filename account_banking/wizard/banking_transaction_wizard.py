@@ -20,7 +20,7 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-from osv import osv, fields
+from osv import orm, osv, fields
 from openerp.tools.translate import _
 
 """
@@ -88,14 +88,49 @@ class banking_transaction_wizard(osv.osv_memory):
         statement_line_obj = self.pool.get('account.bank.statement.line')
         transaction_obj = self.pool.get('banking.import.transaction')
 
-        if not vals:
+        if not vals or not ids:
             return True
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+
+        wiz = self.browse(cr, uid, ids[0], context=context)
 
         # The following fields get never written
         # they are just triggers for manual matching
         # which populates regular fields on the transaction
         manual_invoice_ids = vals.pop('manual_invoice_ids', [])
         manual_move_line_ids = vals.pop('manual_move_line_ids', [])
+        manual_payment_order_id = vals.pop('manual_payment_order_id', False)
+
+        if manual_payment_order_id:
+            payment_order = self.pool.get('payment.order').browse(
+                cr, uid, manual_payment_order_id,
+                context=context)
+            if (not hasattr(payment_order, 'payment_order_type')
+                    or payment_order.payment_order_type == 'payment'):
+                sign = 1
+            else:
+                sign = -1
+            total = (payment_order.total + sign * 
+                     wiz.import_transaction_id.transferred_amount)
+            if not self.pool.get('res.currency').is_zero(
+                    cr, uid, wiz.import_transaction_id.statement_id.currency, total):
+                raise orm.except_orm(
+                    _('Error'),
+                    _('When matching a payment order, the amounts have to '
+                      'match exactly'))
+
+            vals.update(
+                {
+                    'payment_order_id': manual_payment_order_id,
+                    'match_type': 'payment_order_manual',
+                    })
+
+            if payment_order.mode and payment_order.mode.transfer_account_id:
+                statement_line_obj.write(
+                    cr, uid, wiz.import_transaction_id.statement_line_id.id,
+                    {'account_id': payment_order.mode.transfer_account_id.id},
+                    context=context)
 
         # Support for writing fields.related is still flakey:
         # https://bugs.launchpad.net/openobject-server/+bug/915975
@@ -112,17 +147,14 @@ class banking_transaction_wizard(osv.osv_memory):
                 del wizard_vals[key]
 
         # write the related fields on the transaction model
-        if isinstance(ids, int):
-            ids = [ids]
-        for wizard in self.browse(cr, uid, ids, context=context):
-            if wizard.import_transaction_id:
-                transaction_obj.write(
-                    cr, uid, wizard.import_transaction_id.id,
-                    transaction_vals, context=context)
+        transaction_obj.write(
+            cr, uid, wiz.import_transaction_id.id,
+            transaction_vals, context=context)
 
         # write other fields to the wizard model
         res = super(banking_transaction_wizard, self).write(
             cr, uid, ids, wizard_vals, context=context)
+        wiz.refresh()
 
         # End of workaround for lp:915975
         
@@ -130,14 +162,13 @@ class banking_transaction_wizard(osv.osv_memory):
 
         # An invoice is selected from multiple candidates
         if vals and 'invoice_id' in vals:
-            for wiz in self.browse(cr, uid, ids, context=context):
-                if (wiz.import_transaction_id.match_type == 'invoice' and
+            if (wiz.import_transaction_id.match_type == 'invoice' and
                     wiz.import_transaction_id.invoice_id):
-                    # the current value might apply
-                    if (wiz.move_line_id and wiz.move_line_id.invoice and
+                # the current value might apply
+                if (wiz.move_line_id and wiz.move_line_id.invoice and
                         wiz.move_line_id.invoice.id == wiz.invoice_id.id):
-                        found = True
-                        continue
+                    found = True
+                else:
                     # Otherwise, retrieve the move line for this invoice
                     # Given the arity of the relation, there is are always
                     # multiple possibilities but the move lines here are
@@ -146,7 +177,7 @@ class banking_transaction_wizard(osv.osv_memory):
                     # one of those only.
                     for move_line in wiz.import_transaction_id.move_line_ids:
                         if (move_line.invoice.id ==
-                            wiz.import_transaction_id.invoice_id.id):
+                                wiz.import_transaction_id.invoice_id.id):
                             transaction_obj.write(
                                 cr, uid, wiz.import_transaction_id.id,
                                 { 'move_line_id': move_line.id, }, context=context)
@@ -157,15 +188,12 @@ class banking_transaction_wizard(osv.osv_memory):
                                   }, context=context)
                             found = True
                             break
-                    # Cannot match the invoice 
-                    if not found:
-                        # transaction_obj.write(
-                        #   cr, uid, wiz.import_transaction_id.id,
-                        #   { 'invoice_id': False, }, context=context)
-                        osv.except_osv(
-                            _("No entry found for the selected invoice"),
-                            _("No entry found for the selected invoice. " +
-                              "Try manual reconciliation."))
+                # Cannot match the invoice 
+                if not found:
+                    osv.except_osv(
+                        _("No entry found for the selected invoice"),
+                        _("No entry found for the selected invoice. " +
+                          "Try manual reconciliation."))
 
         if manual_move_line_ids or manual_invoice_ids:
             move_line_obj = self.pool.get('account.move.line')
@@ -414,6 +442,10 @@ class banking_transaction_wizard(osv.osv_memory):
             'wizard_id', 'move_line_id', string='Or match one or more entries',
             domain=[('account_id.reconcile', '=', True),
                     ('reconcile_id', '=', False)]),
+        'manual_payment_order_id': fields.many2one(
+            'payment.order', 'Match this payment order',
+            domain=[('state', '=', 'sent')],
+            ),
         'payment_option': fields.related('import_transaction_id','payment_option', string='Payment Difference', type='selection', required=True,
                                          selection=[('without_writeoff', 'Keep Open'),('with_writeoff', 'Reconcile Payment Balance')]),
         'writeoff_analytic_id': fields.related(

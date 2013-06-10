@@ -24,7 +24,7 @@
 #
 ##############################################################################
 
-from osv import osv, fields
+from osv import orm, osv, fields
 import netsvc
 import base64
 import datetime
@@ -146,15 +146,16 @@ class banking_import_transaction(osv.osv):
             limit=0, context=context)
         orders = payment_order_obj.browse(cr, uid, order_ids, context)
         candidates = [x for x in orders if
-                      equals_order_amount(x, trans.transferred_amount) and
-                      x.line_ids and x.line_ids[0].debit_move_line_id]
+                      equals_order_amount(x, trans.transferred_amount)]
+
         if len(candidates) > 0:
             # retrieve the common account_id, if any
             account_id = False
-            for line in candidates[0].line_ids[0].debit_move_line_id.move_id.line_id:
-                if line.account_id.type == 'other':
-                    account_id = line.account_id.id
-                    break
+            if (candidates[0].line_ids[0].debit_move_line_id):
+                for line in candidates[0].line_ids[0].debit_move_line_id.move_id.line_id:
+                    if line.account_id.type == 'other':
+                        account_id = line.account_id.id
+                        break
             return dict(
                 move_line_ids = False,
                 match_type = 'payment_order',
@@ -632,6 +633,11 @@ class banking_import_transaction(osv.osv):
             raise osv.except_osv(
                 _("Cannot unreconcile"),
                 _("Cannot unreconcile: no payment or direct debit order"))
+        if not transaction.statement_line_id.reconcile_id:
+            raise orm.except_orm(
+                _("Cannot unreconcile"),
+                _("Payment orders without transfer move lines cannot be "
+                  "unreconciled this way"))
         return payment_order_obj.debit_unreconcile_transfer(
             cr, uid, transaction.payment_order_id.id,
             transaction.statement_line_id.reconcile_id.id,
@@ -832,6 +838,7 @@ class banking_import_transaction(osv.osv):
         'manual': _cancel_voucher,
         'move': _cancel_voucher,
         'payment_order': _cancel_payment_order,
+        'payment_order_manual': _cancel_payment_order,
         'payment': _cancel_payment,
         }
 
@@ -855,6 +862,7 @@ class banking_import_transaction(osv.osv):
         'invoice': _confirm_move,
         'manual': _confirm_move,
         'payment_order': _confirm_payment_order,
+        'payment_order_manual': _confirm_payment_order,
         'payment': _confirm_payment,
         'move': _confirm_move,
         }
@@ -1640,6 +1648,7 @@ class banking_import_transaction(osv.osv):
         'match_type': fields.selection(
             [('manual', 'Manual'), ('move','Move'), ('invoice', 'Invoice'),
              ('payment', 'Payment'), ('payment_order', 'Payment order'),
+             ('payment_order_manual', 'Payment order (manual)'),
              ('storno', 'Storno')],
             'Match type'),
         'match_multi': fields.function(
@@ -1736,6 +1745,7 @@ class account_bank_statement_line(osv.osv):
             selection=[('manual', 'Manual'), ('move','Move'),
                        ('invoice', 'Invoice'), ('payment', 'Payment'),
                        ('payment_order', 'Payment order'),
+                       ('payment_order_manual', 'Payment order (manual)'),
                        ('storno', 'Storno')], 
             string='Match type', readonly=True,),
         'state': fields.selection(

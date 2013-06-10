@@ -1751,11 +1751,11 @@ class account_bank_statement_line(osv.osv):
         'state': fields.selection(
             [('draft', 'Draft'), ('confirmed', 'Confirmed')], 'State',
             readonly=True, required=True),
-        'parent_id': fields.many2one('account.bank.statement.line',
-            'Parent'),
         'link_partner_ok': fields.function(
             _get_link_partner_ok, type='boolean',
             string='Can link partner'),
+        'parent_id': fields.many2one('account.bank.statement.line',
+            'Parent'),
         }
 
     _defaults = {

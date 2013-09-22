@@ -380,7 +380,7 @@ class payment_line(osv.osv):
         line_ids = [debit_move_line.id, torec_move_line.id]
         if torec_move_line.reconcile_partial_id:
             line_ids = [
-                x.id for x in debit_move_line.reconcile_partial_id.line_partial_ids] + [torec_move_line_id]
+                x.id for x in torec_move_line.reconcile_partial_id.line_partial_ids] + [debit_move_line.id]
 
         total = move_line_obj.get_balance(cr, uid, line_ids)
         vals = {

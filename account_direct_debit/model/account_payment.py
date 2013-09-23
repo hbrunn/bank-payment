@@ -157,8 +157,8 @@ class payment_order(osv.osv):
                         'journal_id': order.mode.transfer_journal_id.id,
                         'name': '%s order %s' % (order.payment_order_type, 
                                                  line.move_line_id.move_id.name),
-                        'reference': '%s%s' % (order.payment_order_type[:3].upper(),
-                                               line.move_line_id.move_id.name),
+                        'ref': '%s%s' % (order.payment_order_type[:3].upper(),
+                                         line.move_line_id.move_id.name),
                         }, context=context)
 
                 # TODO: take multicurrency into account

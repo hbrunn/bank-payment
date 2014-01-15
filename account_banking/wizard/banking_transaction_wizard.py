@@ -305,20 +305,38 @@ class banking_transaction_wizard(osv.osv_memory):
             account_id = False
             journal_id = wiz.statement_line_id.statement_id.journal_id.id
             setting_ids = settings_pool.find(cr, uid, journal_id, context=context)
-            if len(setting_ids)>0:
-                setting = settings_pool.browse(cr, uid, setting_ids[0], context=context)
-                if wiz.amount < 0:
-                    account_id = setting.default_credit_account_id and setting.default_credit_account_id.id
-                else:
-                    account_id = setting.default_debit_account_id and setting.default_debit_account_id.id
-                statement_pool.write(cr, uid, wiz.statement_line_id.id, {'account_id':account_id})
-            
+
             # Restore partner id from the bank account or else reset
             partner_id = False
             if (wiz.statement_line_id.partner_bank_id and
                     wiz.statement_line_id.partner_bank_id.partner_id):
                 partner_id = wiz.statement_line_id.partner_bank_id.partner_id.id
             wiz.write({'partner_id': partner_id})
+
+            # Select account type by parter customer or supplier,
+            # or default based on amount sign
+            bank_partner = False
+            if partner_id:
+                bank_partner = wiz.statement_line_id.partner_bank_id.partner_id
+            if wiz.amount < 0:
+                if bank_partner:
+                    account_id = bank_partner.\
+                        def_journal_account_bank_decr()[bank_partner.id]
+                elif setting_ids:
+                    account_id = settings_pool.browse(
+                        cr, uid, setting_ids[0],
+                        context=context).default_credit_account_id.id
+            else:
+                if bank_partner:
+                    account_id = bank_partner.\
+                        def_journal_account_bank_incr()[bank_partner.id]
+                elif setting_ids:
+                    account_id = settings_pool.browse(
+                        cr, uid, setting_ids[0],
+                        context=context).default_debit_account_id.id
+
+            if account_id:
+                wiz.statement_line_id.write({'account_id': account_id})
             
             if wiz.statement_line_id:
                 #delete splits causing an unsplit if this is a split
@@ -332,7 +350,6 @@ class banking_transaction_wizard(osv.osv_memory):
             if wiz.import_transaction_id:
                 wiz.import_transaction_id.clear_and_write()
 
-            
         return True
 
     def reverse_duplicate(self, cr, uid, ids, context=None):

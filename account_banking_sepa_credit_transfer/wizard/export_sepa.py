@@ -141,7 +141,8 @@ class banking_export_sepa_wizard(osv.osv_memory):
         if sepa_export.prefered_exec_date:
             my_requested_exec_date = sepa_export.prefered_exec_date
         else:
-            my_requested_exec_date = datetime.strftime(datetime.today() + timedelta(days=1), '%Y-%m-%d')
+            my_requested_exec_date = fields.date.context_today(
+                self, cr, uid, context=context)
 
         pain_ns = {
             'xsi': 'http://www.w3.org/2001/XMLSchema-instance',

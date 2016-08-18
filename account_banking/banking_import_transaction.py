@@ -125,7 +125,7 @@ class banking_import_transaction(orm.Model):
         # return move_lines to mix with the rest
         return [x for x in invoice.move_id.line_id if x.account_id.reconcile]
 
-    def _match_invoice(self, cr, uid, trans, move_lines,
+    def _match_invoice(self, cr, uid, trans, move_line_ids,
                        partner_ids, bank_account_ids,
                        log, linked_invoices,
                        context=None):
@@ -253,12 +253,21 @@ class banking_import_transaction(orm.Model):
         # Search invoice on partner
         if partner_ids:
             candidates = [
-                x for x in move_lines
-                if x.partner_id.id in partner_ids and
-                (convert.str2date(x.date, '%Y-%m-%d') <=
-                 (convert.str2date(trans.execution_date, '%Y-%m-%d') +
-                  self.payment_window)) and
-                (not _cached(x) or _remaining(x))
+                x for x in
+                self.pool['account.move.line'].browse(
+                    cr, uid,
+                    self.pool['account.move.line'].search(
+                        cr, uid,
+                        [
+                            ('id', 'in', move_line_ids),
+                            ('partner_id', 'in', partner_ids),
+                            ('date', '<=', convert.str2date(
+                                trans.execution_date, '%Y-%m-%d') +
+                                self.payment_window),
+                        ],
+                        context=context),
+                    context=context)
+                if (not _cached(x) or _remaining(x))
             ]
         else:
             candidates = []
@@ -270,12 +279,63 @@ class banking_import_transaction(orm.Model):
         # interventions *add* text.
         ref = trans.reference.upper()
         msg = trans.message.upper()
-        if len(candidates) > 1 or not candidates:
+        if (len(candidates) > 1 or not candidates) and (ref or msg):
+            # in cases where we have no candidates and no partners,
+            # the search might return a huge amount of results
+            # restrict this to invoices that actually might match
+            if not candidates and not partner_ids:
+                cr.execute(
+                    "select l.id "
+                    "from account_move_line l join account_invoice i "
+                    "on l.move_id=i.move_id "
+                    "where l.id in %(ids)s and "
+                    "(char_length(i.reference) > 2 and "
+                    "(%(ref)s ilike '%%'||i.reference||'%%' or "
+                    "%(msg)s ilike '%%'||i.reference||'%%') or "
+                    "char_length(i.origin) > 2 and "
+                    "(%(ref)s ilike '%%'||i.origin||'%%' or "
+                    "%(msg)s ilike '%%'||i.origin||'%%') or "
+                    "char_length(i.name) > 2 and "
+                    "(%(ref)s ilike '%%'||i.name||'%%' or "
+                    "%(msg)s ilike '%%'||i.name||'%%') or "
+                    "char_length(i.supplier_invoice_number) > 2 and "
+                    "(%(ref)s ilike '%%'||i.supplier_invoice_number||'%%' or "
+                    "%(msg)s ilike '%%'||i.supplier_invoice_number||'%%') or "
+                    "char_length(i.number) > 2 and "
+                    "(%(ref)s ilike '%%'||i.number||'%%' or "
+                    "%(msg)s ilike '%%'||i.number||'%%'))",
+                    {
+                        'ref': ref,
+                        'msg': msg,
+                        'ids': tuple(move_line_ids),
+                    })
+                invoice_move_line_ids = [i for i, in cr.fetchall()]
+            else:
+                invoice_move_line_ids = move_line_ids
             # The manual usage of the sales journal creates moves that
             # are not tied to invoices. Thanks to Stefan Rijnhart for
             # reporting this.
             candidates = [
-                x for x in candidates or move_lines
+                x for x in
+                candidates or
+                self.pool['account.move.line'].browse(
+                    cr, uid,
+                    self.pool['account.move.line'].search(
+                        cr, uid,
+                        [
+                            ('id', 'in', invoice_move_line_ids),
+                            ('move_id.date', '<=', convert.str2date(
+                                trans.execution_date, '%Y-%m-%d') +
+                                self.payment_window),
+                        ]
+                        +
+                        (
+                            []
+                            if not partner_ids else
+                            [('invoice.partner_id', 'in', partner_ids)]
+                        ),
+                        context=context),
+                    context=context)
                 if (x.invoice and has_id_match(x.invoice, ref, msg) and
                     convert.str2date(x.invoice.date_invoice, '%Y-%m-%d') <=
                     (convert.str2date(trans.execution_date, '%Y-%m-%d') +
@@ -289,14 +349,23 @@ class banking_import_transaction(orm.Model):
         # partners.
         if not candidates and partner_ids:
             candidates = [
-                x for x in move_lines
-                if (is_zero(x.move_id, ((x.debit or 0.0) - (x.credit or 0.0)) -
-                            trans.statement_line_id.amount) and
-                    convert.str2date(x.date, '%Y-%m-%d') <=
-                    (convert.str2date(trans.execution_date, '%Y-%m-%d') +
-                    self.payment_window) and
-                    (not _cached(x) or _remaining(x)) and
-                    x.partner_id.id in partner_ids)
+                x for x in
+                self.pool['account.move.line'].browse(
+                    cr, uid,
+                    self.pool['account.move.line'].search(
+                        cr, uid,
+                        [
+                            ('id', 'in', move_line_ids),
+                            ('partner_id', 'in', partner_ids),
+                            ('date', '<=', convert.str2date(
+                                trans.execution_date, '%Y-%m-%d') +
+                                self.payment_window),
+                        ],
+                        context=context),
+                    context=context)
+                if is_zero(x.move_id, ((x.debit or 0.0) - (x.credit or 0.0)) -
+                           trans.statement_line_id.amount) and
+                    (not _cached(x) or _remaining(x))
             ]
 
         move_line = False
@@ -325,32 +394,11 @@ class banking_import_transaction(orm.Model):
                     _cache(move_line)
 
             elif len(candidates) > 1:
-                # Before giving up, check cache for catching duplicate
-                # transfers first
-                paid = [
-                    x for x in move_lines
-                    if x.invoice and has_id_match(x.invoice, ref, msg) and
-                    convert.str2date(x.invoice.date_invoice, '%Y-%m-%d') <=
-                    convert.str2date(trans.execution_date, '%Y-%m-%d') and
-                    (_cached(x) and not _remaining(x))
-                ]
-                if paid:
-                    log.append(
-                        _('Unable to link transaction id %(trans)s '
-                          '(ref: %(ref)s) to invoice: '
-                          'invoice %(invoice)s was already paid') % {
-                              'trans': '%s.%s' % (trans.statement,
-                                                  trans.transaction),
-                              'ref': trans.reference,
-                              'invoice': eyecatcher(paid[0].invoice)})
-                else:
-                    # Multiple matches
-                    # TODO select best bank account in this case
-                    return (trans, self._get_move_info(
-                            cr, uid, [x.id for x in candidates]),
-                            False)
-                move_line = False
-                partial = False
+                # Multiple matches
+                # TODO select best bank account in this case
+                return (trans, self._get_move_info(
+                        cr, uid, [x.id for x in candidates]),
+                        False)
 
             elif len(candidates) == 1 and candidates[0].invoice:
                 # Mismatch in amounts
@@ -886,6 +934,7 @@ class banking_import_transaction(orm.Model):
         injected = []
         i = 0
         max_trans = len(transactions)
+        c2ml = {}
         while i < max_trans:
             move_info = False
             if injected:
@@ -903,35 +952,32 @@ class banking_import_transaction(orm.Model):
             partner_banks = []
             partner_ids = []
 
-            # TODO: optimize by ordering transactions per company,
             # and perform the stanza below only once per company.
             # In that case, take newest transaction date into account
             # when retrieving move_line_ids below.
-            company = company_obj.browse(
-                cr, uid, transaction.company_id.id, context)
-
-            # Get interesting journals once
-            # Added type 'general' to capture fund transfers
-            journal_ids = journal_obj.search(
-                cr, uid, [
-                    ('type', 'in', ('general', 'sale', 'purchase',
-                                    'purchase_refund', 'sale_refund')),
-                    ('company_id', '=', company.id),
-                ],
-            )
-            # Get all unreconciled moves
-            move_line_ids = move_line_obj.search(
-                cr, uid, [
-                    ('reconcile_id', '=', False),
-                    ('journal_id', 'in', journal_ids),
-                    ('account_id.reconcile', '=', True),
-                    ('date', '<=', transaction.execution_date),
-                ],
-            )
-            if move_line_ids:
-                move_lines = move_line_obj.browse(cr, uid, move_line_ids)
+            company = transaction.company_id
+            if company.id not in c2ml:
+                # Get interesting journals once
+                # Added type 'general' to capture fund transfers
+                journal_ids = journal_obj.search(
+                    cr, uid, [
+                        ('type', 'in', ('general', 'sale', 'purchase',
+                                        'purchase_refund', 'sale_refund')),
+                        ('company_id', '=', company.id),
+                    ],
+                )
+                # Get all unreconciled moves
+                move_line_ids = move_line_obj.search(
+                    cr, uid, [
+                        ('reconcile_id', '=', False),
+                        ('journal_id', 'in', journal_ids),
+                        ('account_id.reconcile', '=', True),
+                        ('date', '<=', transaction.execution_date),
+                    ],
+                )
+                c2ml[company.id] = move_line_ids
             else:
-                move_lines = []
+                move_line_ids = c2ml[company.id]
 
             # Create fallback currency code
             currency_code = (transaction.local_currency or
@@ -1096,8 +1142,8 @@ class banking_import_transaction(orm.Model):
                 )
                 results['bank_costs_invoice_cnt'] += bool(lines)
                 for line in lines:
-                    if not [x for x in move_lines if x.id == line.id]:
-                        move_lines.append(line)
+                    if line.id not in move_line_ids:
+                        move_line_ids.append(line)
                 partner_ids = [account_info.bank_partner_id.id]
             else:
                 # Link remote partner, import account when needed
@@ -1153,7 +1199,7 @@ class banking_import_transaction(orm.Model):
                 # these, and invoice matching still has to be done.
 
                 transaction, move_info, remainder = self._match_invoice(
-                    cr, uid, transaction, move_lines, partner_ids,
+                    cr, uid, transaction, move_line_ids, partner_ids,
                     partner_banks, results['log'], linked_invoices,
                     context=context)
                 if remainder:

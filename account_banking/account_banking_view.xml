@@ -184,11 +184,11 @@
             <field name="model">account.bank.statement</field>
             <field name="arch" type="xml">
                 <!-- Remove period from bank statement -->
-                <field name="period_id" position="after">
+                <tree position="inside">
                     <!-- Add invisible column for identification of import file
                     -->
                     <field name="banking_id" invisible="True" />
-                </field>
+                </tree>
             </field>
         </record>
         <record id="view_banking_bank_statement_form_1" model="ir.ui.view">

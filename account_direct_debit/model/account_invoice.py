@@ -136,8 +136,10 @@ class account_invoice(orm.Model):
         """
         super(account_invoice, self).__init__(pool, cr)
         invoice_obj = pool.get('account.invoice')
-        invoice_obj._columns['state'].selection.append(
-            ('debit_denied', 'Debit denied'))
+        if ('debit_denied', 'Debit denied') not in\
+                invoice_obj._columns['state'].selection:
+            invoice_obj._columns['state'].selection.append(
+                ('debit_denied', 'Debit denied'))
 
     def action_debit_denied(self, cr, uid, ids, context=None):
         for invoice_id in ids:

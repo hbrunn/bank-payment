@@ -182,6 +182,8 @@ CAMT Format parser
 
         :param node: Ntry node
         """
+        for retrinf in self.xpath(node, './ns:NtryDtls/ns:TxDtls/ns:RtrInf'):
+            return bt.STORNO
         return bt.ORDER
 
     def parse_Ntry(self, node):
@@ -210,6 +212,16 @@ CAMT Format parser
         # Promote the message to reference if we don't have one yet
         if not vals.get('reference') and vals.get('message'):
             vals['reference'] = vals['message']
+        for retrinf in self.xpath(node, './ns:NtryDtls/ns:TxDtls/ns:RtrInf'):
+            vals.update(
+                storno_retry=True,
+                storno_code=','.join(
+                    n.text for n in self.xpath(retrinf, './ns:Rsn/ns:Cd')
+                ),
+                storno_reason=','.join(
+                    n.text for n in self.xpath(retrinf, './ns:AddtlInf')
+                ),
+            )
         return vals
 
     def get_party_values(self, TxDtls):

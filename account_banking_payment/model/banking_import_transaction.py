@@ -88,7 +88,7 @@ class banking_import_transaction(orm.Model):
             [
                 ('order_id.payment_order_type', '=', 'debit'),
                 ('order_id.state', 'in', ['sent', 'done']),
-                ('communication', '=', trans.reference)
+                ('name', '=', trans.reference)
             ],
             context=context)
         # stornos MUST have an exact match

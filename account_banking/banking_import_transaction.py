@@ -1199,6 +1199,15 @@ class banking_import_transaction(orm.Model):
             if (not values['partner_bank_id'] and partner_banks and
                     len(partner_banks) == 1):
                 values['partner_bank_id'] = partner_banks[0].id
+            if transaction.type == 'ST':
+                values['match_type'] = 'storno'
+                self_values['match_type'] = 'storno'
+                if self_values.get('invoice_id'):
+                    self.pool['account.invoice'].write(
+                        cr, uid, self_values['invoice_id'], {
+                            'state': 'debit_denied',
+                        })
+
 
             statement_line_obj.write(
                 cr, uid, transaction.statement_line_id.id, values, context)
